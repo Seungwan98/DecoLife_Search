@@ -141,18 +141,57 @@ class ExcelSumApp:
             name_ser = df.iloc[:, name_col].astype(str)
             cost_ser = to_number(df.iloc[:, cost_col])
 
-            # 6) 키워드 매칭 & 합계
-            mask = name_ser.fillna("").str.contains(re.escape(keyword), case=False, na=False)
-            matched_count = int(mask.sum())
-            total = cost_ser[mask].sum(skipna=True)
+            # 6) 매칭 & 합계
+            name_lower = name_ser.fillna("").str.lower()
+            kw_lower = keyword.strip().lower()
 
-            # 7) 결과 표시 (항목 개수 포함)
-            self.result_label.config(
-                text=f"결과: {total:,.0f} 원\n(매칭된 항목 수: {matched_count}개)"
-            )
+            if kw_lower == "hdd":
+                # 6-1) 'HDD'가 포함된 행
+                mask_hdd = name_lower.str.contains("hdd", na=False)
 
-            # 7) 결과 표시
-            self.result_label.config(text=f"결과: {total:,.0f} 원")
+                # 6-2) 'HDD'가 포함되지 않은 행들 중에서 모델코드가 있는 행 추가
+                model_codes = [
+                    "WD10EZEX", "WD20EZAZ", "WD20EZBX", "WD30EZAX", "WD40EZAX", "WD60EZAX", "WD80EAZZ", "WD80EAAZ",
+                    "WD10PURZ", "WD23PURZ", "WD33PURZ", "WD43PURZ", "WD64PURZ", "WD84PURZ", "WD8001PURP", "WD101PURP",
+                    "WD121PURP", "WD141PURP", "WD181PURP", "WD2003FZEX", "WD4005FZBX", "WD8002FZWX", "WD101FZBX",
+                    "WD20EFPX", "WD40EFPX", "WD60EZPX", "WD80EFZZ", "WD101EFBX", "WD120EFBX", "WD2002FFSX",
+                    "WD4003FFBX", "WD6003FFBX", "WD8003FFBX", "WD8005FFBX", "WD102KFBX", "WD121KFBX", "WD142KFGX",
+                    "WD161KFGX", "WD181KFGX", "WD201KFGX", "WD221KFGX", "WD240KFGX", "WD10SPZX", "WD20SPZX",
+                    "WD5000LPZX", "WD80EFPX", "WD60EFPX", "WD4005FFBX"
+                ]
+                model_codes = list(dict.fromkeys(model_codes))  # 중복 제거
+                pattern = r"(" + "|".join(map(re.escape, model_codes)) + r")"
+                mask_model = name_ser.str.contains(pattern, case=False, na=False)
+
+                # 'HDD' 없음 AND 모델코드 있음 → 추가 포함
+                mask_extra = (~mask_hdd) & mask_model
+
+                # 최종 마스크 = HDD 포함 OR (HDD 미포함 & 모델코드 포함)
+                final_mask = mask_hdd | mask_extra
+
+                # 개별 카운트(디버깅/확인에 유용)
+                cnt_hdd = int(mask_hdd.sum())
+                cnt_extra = int(mask_extra.sum())
+
+                matched_count = int(final_mask.sum())
+                total = cost_ser[final_mask].sum(skipna=True)
+
+                # 7) 결과 표시
+                self.result_label.config(
+                    text=(
+                        f"결과: {total:,.0f} 원\n"
+                        f"(매칭된 항목 수: {matched_count}개 = HDD표기 {cnt_hdd}개 + 모델코드 {cnt_extra}개)"
+                    )
+                )
+
+            else:
+                # 일반 키워드 처리 (이전 로직과 동일)
+                mask = name_lower.str.contains(re.escape(kw_lower), na=False)
+                matched_count = int(mask.sum())
+                total = cost_ser[mask].sum(skipna=True)
+                self.result_label.config(
+                    text=f"결과: {total:,.0f} 원\n(매칭된 항목 수: {matched_count}개)"
+                )
 
         except Exception as e:
             messagebox.showerror("에러", f"처리 중 오류 발생:\n{e}")
