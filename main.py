@@ -141,15 +141,28 @@ class ExcelSumApp:
             name_ser = df.iloc[:, name_col].astype(str)
             cost_ser = to_number(df.iloc[:, cost_col])
 
-            # 6) 매칭 & 합계
+            # 6) 매칭 & 합계 (목록 수집 포함)
+            self.debug_all = []
+            self.debug_selected = []
+
             name_lower = name_ser.fillna("").str.lower()
             kw_lower = keyword.strip().lower()
 
+            def row_item(idx, reason: str):
+                name_val = str(name_ser.iloc[idx])
+                cost_raw = str(df.iloc[idx, cost_col])
+                # 숫자화 값
+                from math import isnan
+                val = cost_ser.iloc[idx]
+                cost_num = None if pd.isna(val) else float(val)
+                return {"row": int(data_start + idx), "name": name_val, "cost_raw": cost_raw, "cost_num": cost_num,
+                        "reason": reason}
+
             if kw_lower == "hdd":
-                # 6-1) 'HDD'가 포함된 행
+                # 6-1) HDD 포함
                 mask_hdd = name_lower.str.contains("hdd", na=False)
 
-                # 6-2) 'HDD'가 포함되지 않은 행들 중에서 모델코드가 있는 행 추가
+                # 6-2) HDD 미포함 중 모델코드 포함
                 model_codes = [
                     "WD10EZEX", "WD20EZAZ", "WD20EZBX", "WD30EZAX", "WD40EZAX", "WD60EZAX", "WD80EAZZ", "WD80EAAZ",
                     "WD10PURZ", "WD23PURZ", "WD33PURZ", "WD43PURZ", "WD64PURZ", "WD84PURZ", "WD8001PURP", "WD101PURP",
@@ -157,57 +170,169 @@ class ExcelSumApp:
                     "WD20EFPX", "WD40EFPX", "WD60EZPX", "WD80EFZZ", "WD101EFBX", "WD120EFBX", "WD2002FFSX",
                     "WD4003FFBX", "WD6003FFBX", "WD8003FFBX", "WD8005FFBX", "WD102KFBX", "WD121KFBX", "WD142KFGX",
                     "WD161KFGX", "WD181KFGX", "WD201KFGX", "WD221KFGX", "WD240KFGX", "WD10SPZX", "WD20SPZX",
-                    "WD5000LPZX", "WD80EFPX", "WD60EFPX", "WD4005FFBX"
+                    "WD5000LPZX"
                 ]
-                model_codes = list(dict.fromkeys(model_codes))  # 중복 제거
+                model_codes = list(dict.fromkeys(model_codes))
                 pattern = r"(" + "|".join(map(re.escape, model_codes)) + r")"
                 mask_model = name_ser.str.contains(pattern, case=False, na=False)
 
-                # 'HDD' 없음 AND 모델코드 있음 → 추가 포함
                 mask_extra = (~mask_hdd) & mask_model
-
-                # 최종 마스크 = HDD 포함 OR (HDD 미포함 & 모델코드 포함)
                 final_mask = mask_hdd | mask_extra
 
-                # 개별 카운트(디버깅/확인에 유용)
+                # 합계/개수
                 cnt_hdd = int(mask_hdd.sum())
-                cnt_extra = int(mask_extra.sum())
-
+                cnt_model_only = int(mask_extra.sum())
                 matched_count = int(final_mask.sum())
                 total = cost_ser[final_mask].sum(skipna=True)
+
+                # 🔎 디버그 목록 수집 (상한 300건)
+                LIMIT = 300
+
+                def row_item(idx, reason: str):
+                    name_val = str(name_ser.loc[idx])
+                    cost_raw = str(df.loc[idx, df.columns[cost_col]])
+                    val = cost_ser.loc[idx]
+                    cost_num = None if pd.isna(val) else float(val)
+                    return {"row": int(idx), "name": name_val, "cost_raw": cost_raw, "cost_num": cost_num,
+                            "reason": reason}
+
+                # 전체 후보 수집
+                for idx in list(mask_hdd[mask_hdd].index)[:LIMIT]:
+                    self.debug_all.append(row_item(idx, "HDD"))
+                for idx in list(mask_model[mask_model].index)[:LIMIT]:
+                    if not mask_hdd.loc[idx]:  # ✅ loc
+                        self.debug_all.append(row_item(idx, "모델코드"))
+
+                # 최종 선택 수집
+                for idx in list(final_mask[final_mask].index)[:LIMIT]:
+                    reason = "HDD" if mask_hdd.loc[idx] else "모델코드"  # ✅ loc
+                    self.debug_selected.append(row_item(idx, reason))
+
+                # 최종 선택: final_mask True
+                for idx in list(final_mask[final_mask].index)[:LIMIT]:
+                    # 두 경우 구분해 이유 표기
+                    reason = "HDD" if mask_hdd.iloc[idx] else "모델코드"
+                    self.debug_selected.append(row_item(idx, reason))
 
                 # 7) 결과 표시
                 self.result_label.config(
                     text=(
                         f"결과: {total:,.0f} 원\n"
-                        f"(매칭된 항목 수: {matched_count}개 = HDD표기 {cnt_hdd}개 + 모델코드 {cnt_extra}개)"
+                        f"(매칭된 항목 수: {matched_count}개 = HDD표기 {cnt_hdd}개 + 모델코드 {cnt_model_only}개)"
                     )
                 )
 
+            elif kw_lower == "ssd":
+                # 6-1) SSD 포함
+                mask_ssd = name_lower.str.contains("ssd", na=False)
+
+                # 6-2) SSD 미포함 중 모델코드 포함
+                ssd_models = [
+                    "Green 3D", "Green SATA", "Green M.2", "SA510",
+                    "SN350", "SN570", "SN580", "SN770", "SN770M",
+                    "SN850X", "SN5000", "SN7100"
+                ]
+                ssd_models = list(dict.fromkeys(ssd_models))
+                pattern = r"(" + "|".join(map(re.escape, ssd_models)) + r")"
+                mask_model = name_ser.str.contains(pattern, case=False, na=False)
+
+                mask_extra = (~mask_ssd) & mask_model
+                final_mask = mask_ssd | mask_extra
+
+                # 합계/개수
+                cnt_ssd = int(mask_ssd.sum())
+                cnt_model_only = int(mask_extra.sum())
+                matched_count = int(final_mask.sum())
+                total = cost_ser[final_mask].sum(skipna=True)
+
+                # 🔎 디버그 목록 수집 (상한 300건)
+                LIMIT = 300
+
+                def row_item(idx, reason: str):
+                    name_val = str(name_ser.loc[idx])
+                    cost_raw = str(df.loc[idx, df.columns[cost_col]])
+                    val = cost_ser.loc[idx]
+                    cost_num = None if pd.isna(val) else float(val)
+                    return {"row": int(idx), "name": name_val, "cost_raw": cost_raw, "cost_num": cost_num,
+                            "reason": reason}
+
+                for idx in list(mask_ssd[mask_ssd].index)[:LIMIT]:
+                    self.debug_all.append(row_item(idx, "SSD"))
+
+                for idx in list(mask_model[mask_model].index)[:LIMIT]:
+                    if not mask_ssd.loc[idx]:  # ✅ iloc → loc
+                        self.debug_all.append(row_item(idx, "모델코드"))
+
+                for idx in list(final_mask[final_mask].index)[:LIMIT]:
+                    reason = "SSD" if mask_ssd.loc[idx] else "모델코드"  # ✅ iloc → loc
+                    self.debug_selected.append(row_item(idx, reason))
+
+                # 7) 결과 표시
+                self.result_label.config(
+                    text=(
+                        f"결과: {total:,.0f} 원\n"
+                        f"(매칭된 항목 수: {matched_count}개 = SSD표기 {cnt_ssd}개 + 모델코드 {cnt_model_only}개)"
+                    )
+                )
+
+
             else:
-                # 일반 키워드 처리 (이전 로직과 동일)
+                # 일반 키워드
                 mask = name_lower.str.contains(re.escape(kw_lower), na=False)
                 matched_count = int(mask.sum())
                 total = cost_ser[mask].sum(skipna=True)
+
+                LIMIT = 300
+                # 전체 후보 = 키워드 포함 행
+                for idx in list(mask[mask].index)[:LIMIT]:
+                    self.debug_all.append(row_item(idx, f"키워드:{keyword}"))
+                # 최종 선택 = 동일 (일반 검색은 보정 없음)
+                for idx in list(mask[mask].index)[:LIMIT]:
+                    self.debug_selected.append(row_item(idx, f"키워드:{keyword}"))
+
                 self.result_label.config(
                     text=f"결과: {total:,.0f} 원\n(매칭된 항목 수: {matched_count}개)"
                 )
+
 
         except Exception as e:
             messagebox.showerror("에러", f"처리 중 오류 발생:\n{e}")
 
     # ---------- 디버그 로그 팝업 ----------
     def show_debug(self):
-        if not self.last_log:
-            messagebox.showinfo("디버그", "아직 로그가 없습니다. 먼저 '합계 계산'을 실행하세요.")
-            return
+        """'모델코드로만 잡힌' 항목들만 디버그 로그로 표시"""
+        # 모델코드로만 잡힌 항목들만 필터링
+        model_only_items = [it for it in self.debug_selected if it["reason"] == "모델코드"]
+
+        # 표 형태 문자열 만들기
+        def table_from(items, title):
+            if not items:
+                return f"[{title}]\n(모델코드로만 추가된 항목 없음)\n"
+            lines = [f"[{title}] (총 {len(items)}건)\n"]
+            lines.append(f"{'행':>6} | {'상품명':60} | {'금액(원본)':15} | {'금액(숫자)':>12}")
+            lines.append("-" * 110)
+            for it in items:
+                cost_display = "-" if it['cost_num'] is None else f"{it['cost_num']:,.0f}"
+                row = (
+                    f"{it['row']:>6} | "
+                    f"{it['name'][:60]:60} | "
+                    f"{str(it['cost_raw'])[:15]:15} | "
+                    f"{cost_display:>12}"
+                )
+                lines.append(row)
+            return "\n".join(lines) + "\n\n"
+
+        # 팝업창 생성
         win = tk.Toplevel(self.root)
-        win.title("디버그 로그")
-        win.geometry("760x520")
-        txt = tk.Text(win, wrap="none")
+        win.title("모델코드로만 추가된 항목들")
+        win.geometry("900x600")
+
+        txt = tk.Text(win, wrap="none", font=("Menlo", 11))
         txt.pack(fill="both", expand=True)
-        txt.insert("1.0", self.last_log)
+
+        txt.insert("1.0", table_from(model_only_items, "모델코드로만 추가된 항목들"))
         txt.config(state="disabled")
+
 
 # 실행
 if __name__ == "__main__":
